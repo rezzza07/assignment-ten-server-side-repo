@@ -12,97 +12,122 @@ app.use(express.json());
 
 // Root route
 app.get('/', (req, res) => {
-  res.send('Smart server is running');
+    res.send('Smart server is running');
 });
 
 // MongoDB connection
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.ilappos.mongodb.net/?appName=Cluster0`;
 const client = new MongoClient(uri, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
-  },
+    serverApi: {
+        version: ServerApiVersion.v1,
+        strict: true,
+        deprecationErrors: true,
+    },
 });
 
 async function run() {
-  try {
-    // Connect to MongoDB
-    await client.connect();
-    const db = client.db('art_db');
-    const artsCollection = db.collection('arts');
-    const usersCollection = db.collection('users');
+    try {
+        // Connect to MongoDB
+        await client.connect();
+        const db = client.db('art_db');
+        const artsCollection = db.collection('arts');
+        const usersCollection = db.collection('users');
+        const favoritesCollection = db.collection('favorites');
 
-    console.log('Connected to MongoDB successfully!');
+        console.log('Connected to MongoDB successfully!');
 
-    // ----------------- Routes -----------------
+        // ----------------- Routes -----------------
 
-    // Create user
-    app.post('/users', async (req, res) => {
-      const newUser = req.body;
-      const existingUser = await usersCollection.findOne({ email: newUser.email });
-      if (existingUser) return res.send({ message: 'User already exists.' });
+        // Create user
+        app.post('/users', async (req, res) => {
+            const newUser = req.body;
+            const existingUser = await usersCollection.findOne({ email: newUser.email });
+            if (existingUser) return res.send({ message: 'User already exists.' });
 
-      const result = await usersCollection.insertOne(newUser);
-      res.send(result);
-    });
+            const result = await usersCollection.insertOne(newUser);
+            res.send(result);
+        });
 
-    // Get all artworks (optional filter by email)
-    app.get('/arts', async (req, res) => {
-      const email = req.query.email;
-      const query = email ? { email } : {}; // filter if email provided
-      const result = await artsCollection.find(query).toArray();
-      res.send(result);
-    });
+        // Get all artworks (optional filter by email)
+        app.get('/arts', async (req, res) => {
+            const email = req.query.email;
+            const query = email ? { email } : {}; // filter if email provided
+            const result = await artsCollection.find(query).toArray();
+            res.send(result);
+        });
 
-    
-    // Get single art by ID
-    app.get('/arts/:id', async (req, res) => {
-      const objectId = new ObjectId(req.params.id);
-      const result = await artsCollection.findOne({ _id: objectId });
-      res.send({ success: true, result });
-    });
+        // Featured Arts
+        app.get('/featured-arts', async (req, res) => {
+            const result = await artsCollection.find().sort({ createdAt: 'asc' }).limit(6).toArray()
+            console.log(result)
+            res.send(result)
+        })
 
-    // Add new art
-    app.post('/arts', async (req, res) => {
-      const result = await artsCollection.insertOne(req.body);
-      res.send({ success: true, result });
-    });
 
-    // Update art
-    app.put('/arts/:id', async (req, res) => {
-      const objectId = new ObjectId(req.params.id);
-      const filter = { _id: objectId };
-      const update = { $set: req.body };
-      const result = await artsCollection.updateOne(filter, update);
-      res.send({ success: true, result });
-    });
 
-    // Patch art
-    app.patch('/arts/:id', async (req, res) => {
-      const objectId = new ObjectId(req.params.id);
-      const update = { $set: req.body };
-      const result = await artsCollection.updateOne({ _id: objectId }, update);
-      res.send(result);
-    });
 
-    // Delete art
-    app.delete('/arts/:id', async (req, res) => {
-      const objectId = new ObjectId(req.params.id);
-      const result = await artsCollection.deleteOne({ _id: objectId });
-      res.send(result);
-    });
+        // Get single art by ID
+        app.get('/arts/:id', async (req, res) => {
+            const objectId = new ObjectId(req.params.id);
+            const result = await artsCollection.findOne({ _id: objectId });
+            res.send({ success: true, result });
+        });
 
-    // ------------------------------------------------
+        // Add new art
+        app.post('/arts', async (req, res) => {
+            const result = await artsCollection.insertOne(req.body);
+            res.send({ success: true, result });
+        });
 
-  } finally {
-    // do not close client; server will keep running
-  }
+        // Update art
+        app.put('/arts/:id', async (req, res) => {
+            const objectId = new ObjectId(req.params.id);
+            const filter = { _id: objectId };
+            const update = { $set: req.body };
+            const result = await artsCollection.updateOne(filter, update);
+            res.send({ success: true, result });
+        });
+
+        // Patch art
+        app.patch('/arts/:id', async (req, res) => {
+            const objectId = new ObjectId(req.params.id);
+            const update = { $set: req.body };
+            const result = await artsCollection.updateOne({ _id: objectId }, update);
+            res.send(result);
+        });
+
+        // Delete art
+        app.delete('/arts/:id', async (req, res) => {
+            const objectId = new ObjectId(req.params.id);
+            const result = await artsCollection.deleteOne({ _id: objectId });
+            res.send(result);
+        });
+        // Favorite
+        app.post('/favorites', async (req, res) => {
+            const data = req.body
+            const result = await favoritesCollection.insertOne(data)
+            res.send(result)
+
+        });
+
+        app.get("/my-favorites", async (req, res) => {
+            const email = req.query.email
+            const result = await favoritesCollection.find({ email: email }).toArray()
+            res.send(result)
+        })
+
+
+
+        // ------------------------------------------------
+
+    } finally {
+        // do not close client; server will keep running
+    }
 }
 
 // Start server **after connecting to MongoDB**
 run().then(() => {
-  app.listen(port, () => {
-    console.log(`Server running on port: ${port}`);
-  });
+    app.listen(port, () => {
+        console.log(`Server running on port: ${port}`);
+    });
 }).catch(console.dir);
