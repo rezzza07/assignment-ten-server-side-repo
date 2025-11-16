@@ -2,132 +2,295 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const admin = require('firebase-admin');
+
+const serviceAccount = require('./serviceKey.json');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors());
+// ---------- MIDDLEWARE ----------
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+  })
+);
 app.use(express.json());
 
-// Root route
+// ---------- FIREBASE ADMIN ----------
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
+// ---------- ROOT ROUTE ----------
 app.get('/', (req, res) => {
-    res.send('Smart server is running');
+  res.send('Smart server is running');
 });
 
-// MongoDB connection
+// ---------- MONGODB CONNECTION ----------
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.ilappos.mongodb.net/?appName=Cluster0`;
+
 const client = new MongoClient(uri, {
-    serverApi: {
-        version: ServerApiVersion.v1,
-        strict: true,
-        deprecationErrors: true,
-    },
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true,
+  },
 });
 
+// ---------- AUTH MIDDLEWARE ----------
+const verifyToken = async (req, res, next) => {
+  const authorization = req.headers.authorization;
+
+  if (!authorization) {
+    return res.status(401).send({
+      message: 'unauthorized access. Token not found',
+    });
+  }
+
+  // Expect header like: "Bearer <token>"
+  const token = authorization.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).send({
+      message: 'unauthorized access. Invalid token format',
+    });
+  }
+
+  try {
+    // Optional: log token in development only
+    // console.log('Received token:', token);
+
+    const decoded = await admin.auth().verifyIdToken(token);
+    // You can attach user info to req if needed
+    req.decodedUser = decoded;
+    next();
+  } catch (error) {
+    console.error('TOKEN VERIFY ERROR:', error);
+    return res.status(401).send({
+      message: 'unauthorized access',
+    });
+  }
+};
+
+// ---------- MAIN APP LOGIC ----------
 async function run() {
-    try {
-        // Connect to MongoDB
-        await client.connect();
-        const db = client.db('art_db');
-        const artsCollection = db.collection('arts');
-        const usersCollection = db.collection('users');
-        const favoritesCollection = db.collection('favorites');
+  try {
+    await client.connect();
+    const db = client.db('art_db');
+    const artsCollection = db.collection('arts');
+    const usersCollection = db.collection('users');
+    const favoritesCollection = db.collection('favorites');
 
-        console.log('Connected to MongoDB successfully!');
+    console.log('Connected to MongoDB successfully!');
 
-        // ----------------- Routes -----------------
+    // ----------------- ROUTES -----------------
 
-        // Create user
-        app.post('/users', async (req, res) => {
-            const newUser = req.body;
-            const existingUser = await usersCollection.findOne({ email: newUser.email });
-            if (existingUser) return res.send({ message: 'User already exists.' });
+    // Create user
+    app.post('/users', async (req, res) => {
+      try {
+        const newUser = req.body;
+        const existingUser = await usersCollection.findOne({ email: newUser.email });
 
-            const result = await usersCollection.insertOne(newUser);
-            res.send(result);
+        if (existingUser) {
+          return res.send({ message: 'User already exists.' });
+        }
+
+        const result = await usersCollection.insertOne(newUser);
+        res.send(result);
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: 'Server error' });
+      }
+    });
+
+    // Get all artworks (optional filter by email)
+    app.get('/arts', async (req, res) => {
+      try {
+        const email = req.query.email;
+        const query = email ? { email } : {};
+        const result = await artsCollection.find(query).toArray();
+        res.send(result);
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: 'Server error' });
+      }
+    });
+
+    // Featured Arts (limit 6)
+    app.get('/featured-arts', async (req, res) => {
+      try {
+        const result = await artsCollection
+          .find()
+          .sort({ createdAt: 1 }) // ascending
+          .limit(6)
+          .toArray();
+        res.send(result);
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: 'Server error' });
+      }
+    });
+
+    // Get single art by ID (protected)
+    app.get('/arts/:id', verifyToken, async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({
+            success: false,
+            message: 'Invalid art ID',
+          });
+        }
+
+        const objectId = new ObjectId(id);
+        const result = await artsCollection.findOne({ _id: objectId });
+
+        if (!result) {
+          return res.status(404).send({
+            success: false,
+            message: 'Art not found',
+          });
+        }
+
+        res.send({ success: true, result });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({
+          success: false,
+          message: 'Server error',
         });
+      }
+    });
 
-        // Get all artworks (optional filter by email)
-        app.get('/arts', async (req, res) => {
-            const email = req.query.email;
-            const query = email ? { email } : {}; // filter if email provided
-            const result = await artsCollection.find(query).toArray();
-            res.send(result);
-        });
+    // Add new art
+    app.post('/arts', async (req, res) => {
+      try {
+        const artData = req.body;
+        const result = await artsCollection.insertOne(artData);
+        res.send({ success: true, result });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ success: false, message: 'Server error' });
+      }
+    });
 
-        // Featured Arts
-        app.get('/featured-arts', async (req, res) => {
-            const result = await artsCollection.find().sort({ createdAt: 'asc' }).limit(6).toArray()
-            console.log(result)
-            res.send(result)
-        })
+    // Update art (full replace fields from body)
+    app.put('/arts/:id', async (req, res) => {
+      try {
+        const { id } = req.params;
 
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({
+            success: false,
+            message: 'Invalid art ID',
+          });
+        }
 
+        const objectId = new ObjectId(id);
+        const filter = { _id: objectId };
+        const update = { $set: req.body };
+        const result = await artsCollection.updateOne(filter, update);
 
+        res.send({ success: true, result });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ success: false, message: 'Server error' });
+      }
+    });
 
-        // Get single art by ID
-        app.get('/arts/:id', async (req, res) => {
-            const objectId = new ObjectId(req.params.id);
-            const result = await artsCollection.findOne({ _id: objectId });
-            res.send({ success: true, result });
-        });
+    // Patch art (partial update)
+    app.patch('/arts/:id', async (req, res) => {
+      try {
+        const { id } = req.params;
 
-        // Add new art
-        app.post('/arts', async (req, res) => {
-            const result = await artsCollection.insertOne(req.body);
-            res.send({ success: true, result });
-        });
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({
+            success: false,
+            message: 'Invalid art ID',
+          });
+        }
 
-        // Update art
-        app.put('/arts/:id', async (req, res) => {
-            const objectId = new ObjectId(req.params.id);
-            const filter = { _id: objectId };
-            const update = { $set: req.body };
-            const result = await artsCollection.updateOne(filter, update);
-            res.send({ success: true, result });
-        });
+        const objectId = new ObjectId(id);
+        const update = { $set: req.body };
+        const result = await artsCollection.updateOne({ _id: objectId }, update);
 
-        // Patch art
-        app.patch('/arts/:id', async (req, res) => {
-            const objectId = new ObjectId(req.params.id);
-            const update = { $set: req.body };
-            const result = await artsCollection.updateOne({ _id: objectId }, update);
-            res.send(result);
-        });
+        res.send({ success: true, result });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ success: false, message: 'Server error' });
+      }
+    });
 
-        // Delete art
-        app.delete('/arts/:id', async (req, res) => {
-            const objectId = new ObjectId(req.params.id);
-            const result = await artsCollection.deleteOne({ _id: objectId });
-            res.send(result);
-        });
-        // Favorite
-        app.post('/favorites', async (req, res) => {
-            const data = req.body
-            const result = await favoritesCollection.insertOne(data)
-            res.send(result)
+    // Delete art
+    app.delete('/arts/:id', async (req, res) => {
+      try {
+        const { id } = req.params;
 
-        });
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({
+            success: false,
+            message: 'Invalid art ID',
+          });
+        }
 
-        app.get("/my-favorites", async (req, res) => {
-            const email = req.query.email
-            const result = await favoritesCollection.find({ email: email }).toArray()
-            res.send(result)
-        })
+        const objectId = new ObjectId(id);
+        const result = await artsCollection.deleteOne({ _id: objectId });
 
+        res.send({ success: true, result });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ success: false, message: 'Server error' });
+      }
+    });
 
+    // Add favorite
+    app.post('/favorites', async (req, res) => {
+      try {
+        const data = req.body;
+        const result = await favoritesCollection.insertOne(data);
+        res.send({ success: true, result });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ success: false, message: 'Server error' });
+      }
+    });
 
-        // ------------------------------------------------
+    // Get favorites by user email
+    app.get('/my-favorites', async (req, res) => {
+      try {
+        const email = req.query.email;
+        if (!email) {
+          return res.status(400).send({
+            success: false,
+            message: 'Email query param is required',
+          });
+        }
 
-    } finally {
-        // do not close client; server will keep running
-    }
+        const result = await favoritesCollection
+          .find({ added_by: email })
+          .toArray();
+
+        res.send({ success: true, result });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ success: false, message: 'Server error' });
+      }
+    });
+
+    // ------------------------------------------------
+  } finally {
+    // Intentionally not closing the client so the server stays alive
+  }
 }
 
-// Start server **after connecting to MongoDB**
-run().then(() => {
+// Start server after connecting to MongoDB
+run()
+  .then(() => {
     app.listen(port, () => {
-        console.log(`Server running on port: ${port}`);
+      console.log(`Server running on port: ${port}`);
     });
-}).catch(console.dir);
+  })
+  .catch(console.error);
