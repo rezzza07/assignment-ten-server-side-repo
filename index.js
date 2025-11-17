@@ -49,7 +49,7 @@ const verifyToken = async (req, res, next) => {
     });
   }
 
-  // Expect header like: "Bearer <token>"
+  
   const token = authorization.split(' ')[1];
 
   if (!token) {
@@ -59,11 +59,10 @@ const verifyToken = async (req, res, next) => {
   }
 
   try {
-    // Optional: log token in development only
-    // console.log('Received token:', token);
+    
 
     const decoded = await admin.auth().verifyIdToken(token);
-    // You can attach user info to req if needed
+    
     req.decodedUser = decoded;
     next();
   } catch (error) {
@@ -177,7 +176,7 @@ async function run() {
       }
     });
 
-    // Update art (full replace fields from body)
+    // Update art 
     app.put('/arts/:id', async (req, res) => {
       try {
         const { id } = req.params;
@@ -284,11 +283,11 @@ async function run() {
 
     // ------------------------------------------------
   } finally {
-    // Intentionally not closing the client so the server stays alive
+   
   }
 }
 
-// Start server after connecting to MongoDB
+
 run()
   .then(() => {
     app.listen(port, () => {
