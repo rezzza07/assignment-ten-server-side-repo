@@ -123,7 +123,7 @@ async function run() {
       try {
         const result = await artsCollection
           .find()
-          .sort({ createdAt: 1 }) // ascending
+          .sort({ createdAt: 1 }) 
           .limit(6)
           .toArray();
         res.send(result);
@@ -245,6 +245,8 @@ async function run() {
         res.status(500).send({ success: false, message: 'Server error' });
       }
     });
+
+    
 
     // Add favorite
     app.post('/favorites', async (req, res) => {
