@@ -9,6 +9,14 @@ const serviceAccount = require('./serviceKey.json');
 const app = express();
 const port = process.env.PORT || 3000;
 
+// ---------- FIREBASE ADMIN ----------
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
+
+
+
 // ---------- MIDDLEWARE ----------
 app.use(
   cors({
@@ -18,12 +26,8 @@ app.use(
 );
 app.use(express.json());
 
-// ---------- FIREBASE ADMIN ----------
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
 
-// ---------- ROUTE ----------
+// ---------- ROOT ROUTE ----------
 app.get('/', (req, res) => {
   res.send('Smart server is running');
 });
@@ -65,8 +69,9 @@ const verifyToken = async (req, res, next) => {
 // ---------- MAIN FUNCTION ----------
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
     const db = client.db('art_db');
+
     const artsCollection = db.collection('arts');
     const usersCollection = db.collection('users');
     const favoritesCollection = db.collection('favorites');
@@ -77,6 +82,7 @@ async function run() {
     app.post('/users', async (req, res) => {
       try {
         const newUser = req.body;
+
         const existingUser = await usersCollection.findOne({ email: newUser.email });
 
         if (existingUser) {
@@ -91,12 +97,13 @@ async function run() {
       }
     });
 
-    // ---------------- ARTS ----------------
+    // ---------------- ARTS CRUD ----------------
     app.get('/arts', async (req, res) => {
       try {
         const email = req.query.email;
         const query = email ? { email } : {};
         const result = await artsCollection.find(query).toArray();
+
         res.send(result);
       } catch (err) {
         console.error(err);
@@ -106,11 +113,7 @@ async function run() {
 
     app.get('/featured-arts', async (req, res) => {
       try {
-        const result = await artsCollection
-          .find()
-          .sort({ createdAt: 1 })
-          .limit(6)
-          .toArray();
+        const result = await artsCollection.find().sort({ createdAt: 1 }).limit(6).toArray();
         res.send(result);
       } catch (err) {
         console.error(err);
@@ -126,8 +129,7 @@ async function run() {
           return res.status(400).send({ success: false, message: 'Invalid art ID' });
         }
 
-        const objectId = new ObjectId(id);
-        const result = await artsCollection.findOne({ _id: objectId });
+        const result = await artsCollection.findOne({ _id: new ObjectId(id) });
 
         if (!result) {
           return res.status(404).send({
@@ -147,6 +149,7 @@ async function run() {
       try {
         const artData = req.body;
         const result = await artsCollection.insertOne(artData);
+
         res.send({ success: true, result });
       } catch (err) {
         console.error(err);
@@ -162,9 +165,8 @@ async function run() {
           return res.status(400).send({ success: false, message: 'Invalid art ID' });
         }
 
-        const objectId = new ObjectId(id);
         const update = { $set: req.body };
-        const result = await artsCollection.updateOne({ _id: objectId }, update);
+        const result = await artsCollection.updateOne({ _id: new ObjectId(id) }, update);
 
         res.send({ success: true, result });
       } catch (err) {
@@ -181,9 +183,8 @@ async function run() {
           return res.status(400).send({ success: false, message: 'Invalid art ID' });
         }
 
-        const objectId = new ObjectId(id);
         const update = { $set: req.body };
-        const result = await artsCollection.updateOne({ _id: objectId }, update);
+        const result = await artsCollection.updateOne({ _id: new ObjectId(id) }, update);
 
         res.send({ success: true, result });
       } catch (err) {
@@ -210,7 +211,7 @@ async function run() {
 
     // ---------------- FAVORITES ----------------
 
-    // FAVORITE TOGGLE (ADD / REMOVE)
+    // FAVORITE TOGGLE
     app.post('/favorites/toggle', async (req, res) => {
       try {
         const { artId, email } = req.body;
@@ -244,7 +245,7 @@ async function run() {
       }
     });
 
-    // FAV BUTTON
+    // CHECK IF FAVORITE
     app.get('/favorites/check', async (req, res) => {
       try {
         const { email, artId } = req.query;
@@ -257,7 +258,7 @@ async function run() {
       }
     });
 
-    //MY FAVORITES BY USER
+    // MY FAVORITES BY USER
     app.get('/my-favorites', async (req, res) => {
       try {
         const email = req.query.email;
@@ -278,9 +279,11 @@ async function run() {
       }
     });
 
-  } finally {}
+  } finally { }
 }
 
-run().then(() => {
-  app.listen(port, () => console.log(`Server running on port: ${port}`));
-}).catch(console.error);
+run()
+  .then(() => {
+    app.listen(port, () => console.log(`Server running on port: ${port}`));
+  })
+  .catch(console.error);
